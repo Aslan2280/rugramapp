@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>RuGram - Мессенджер</title>
     <style>
         * {
@@ -203,8 +203,47 @@
             cursor: pointer;
         }
 
+        .fab {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            z-index: 100;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            max-width: 400px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
         @media (max-width: 768px) {
             .message { max-width: 85%; }
+            .fab { bottom: 70px; right: 16px; width: 50px; height: 50px; }
         }
         
         .loading {
@@ -213,10 +252,12 @@
             color: var(--text-secondary);
         }
         
-        .error-box {
-            text-align: center;
-            padding: 40px;
-            color: #e53e3e;
+        .menu-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-primary);
         }
     </style>
 </head>
@@ -226,7 +267,6 @@
     </div>
 
     <script>
-        // ============== SUPABASE КОНФИГ ==============
         const SUPABASE_URL = 'https://zbwoasggkcbsasbccbss.supabase.co'
         const SUPABASE_KEY = 'sb_publishable_nQJj-Fz6HSYpkPt_xKeMNw_wbziDfJH'
         
@@ -242,15 +282,6 @@
         function setTheme(theme) {
             document.body.setAttribute('data-theme', theme)
             localStorage.setItem('theme', theme)
-            const btns = document.querySelectorAll('.theme-btn')
-            btns.forEach(btn => {
-                btn.classList.remove('active')
-                if ((theme === 'light' && btn.classList.contains('light')) ||
-                    (theme === 'dark' && btn.classList.contains('dark')) ||
-                    (theme === 'personal' && btn.classList.contains('personal'))) {
-                    btn.classList.add('active')
-                }
-            })
         }
         
         // Шифрование
@@ -284,9 +315,7 @@
                 combined.set(iv)
                 combined.set(new Uint8Array(encrypted), iv.length)
                 return btoa(String.fromCharCode(...combined))
-            } catch (e) {
-                return text
-            }
+            } catch { return text }
         }
         
         async function decryptText(encryptedBase64) {
@@ -297,25 +326,18 @@
                 const encrypted = combined.slice(12)
                 const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, encrypted)
                 return decoder.decode(decrypted)
-            } catch (e) {
-                return encryptedBase64
-            }
+            } catch { return encryptedBase64 }
         }
         
-        // Загрузка Supabase
         async function loadSupabase() {
             return new Promise((resolve, reject) => {
                 const script = document.createElement('script')
                 script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js'
                 script.onload = () => {
-                    try {
-                        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
-                        resolve()
-                    } catch (e) {
-                        reject(e)
-                    }
+                    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
+                    resolve()
                 }
-                script.onerror = () => reject(new Error('Не удалось загрузить Supabase'))
+                script.onerror = () => reject(new Error('Ошибка загрузки Supabase'))
                 document.head.appendChild(script)
             })
         }
@@ -325,37 +347,27 @@
             try {
                 const { data: { user } } = await supabase.auth.getUser()
                 return user
-            } catch (e) {
-                return null
-            }
+            } catch { return null }
         }
         
         async function getProfile(userId) {
             if (!supabase) return null
             try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', userId)
-                    .single()
-                if (error) return null
+                const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
                 return data
-            } catch (e) {
-                return null
-            }
+            } catch { return null }
         }
         
         async function getUserChats() {
             if (!supabase) return []
             const user = await getCurrentUser()
             if (!user) return []
-            
             try {
-                const { data, error } = await supabase
+                const { data } = await supabase
                     .from('chat_members')
                     .select('chat_id, role, chat:chats(*)')
                     .eq('user_id', user.id)
-                if (error) return []
+                if (!data) return []
                 
                 const chats = []
                 for (const member of data) {
@@ -377,34 +389,27 @@
                     chats.push({ ...chat, name: chatName || 'Чат', role: member.role })
                 }
                 return chats
-            } catch (e) {
-                return []
-            }
+            } catch { return [] }
         }
         
         async function getMessages(chatId) {
             if (!supabase) return []
             try {
-                const { data, error } = await supabase
+                const { data } = await supabase
                     .from('messages')
                     .select('*, sender:sender_id(id, username)')
                     .eq('chat_id', chatId)
                     .eq('is_deleted', false)
                     .order('created_at', { ascending: true })
                     .limit(50)
-                if (error) return []
-                
+                if (!data) return []
                 for (const msg of data) {
                     if (msg.encrypted_content) {
-                        try {
-                            msg.decrypted = await decryptText(msg.encrypted_content)
-                        } catch { msg.decrypted = '[Зашифровано]' }
+                        msg.decrypted = await decryptText(msg.encrypted_content)
                     }
                 }
                 return data
-            } catch (e) {
-                return []
-            }
+            } catch { return [] }
         }
         
         async function sendMessage(chatId, text, file = null) {
@@ -418,14 +423,12 @@
                 try {
                     const ext = file.name.split('.').pop()
                     const path = `chat_${chatId}/${Date.now()}.${ext}`
-                    const { error } = await supabase.storage.from('rugram-media').upload(path, file)
-                    if (!error) {
-                        const { data: { publicUrl } } = supabase.storage.from('rugram-media').getPublicUrl(path)
-                        mediaUrl = publicUrl
-                        mediaType = file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'document'
-                        fileName = file.name
-                    }
-                } catch (e) {}
+                    await supabase.storage.from('rugram-media').upload(path, file)
+                    const { data: { publicUrl } } = supabase.storage.from('rugram-media').getPublicUrl(path)
+                    mediaUrl = publicUrl
+                    mediaType = file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'document'
+                    fileName = file.name
+                } catch {}
             }
             
             const encrypted = await encryptText(text)
@@ -451,9 +454,7 @@
                 }, async (payload) => {
                     const msg = payload.new
                     if (msg.encrypted_content) {
-                        try {
-                            msg.decrypted = await decryptText(msg.encrypted_content)
-                        } catch { msg.decrypted = '[Зашифровано]' }
+                        msg.decrypted = await decryptText(msg.encrypted_content)
                     }
                     const { data: sender } = await supabase
                         .from('profiles')
@@ -468,16 +469,9 @@
         async function getGifts() {
             if (!supabase) return []
             try {
-                const { data, error } = await supabase
-                    .from('gifts')
-                    .select('*')
-                    .eq('is_active', true)
-                    .order('price_stars')
-                if (error) return []
-                return data
-            } catch (e) {
-                return []
-            }
+                const { data } = await supabase.from('gifts').select('*').eq('is_active', true).order('price_stars')
+                return data || []
+            } catch { return [] }
         }
         
         async function getStarBalance() {
@@ -485,15 +479,9 @@
             const user = await getCurrentUser()
             if (!user) return 0
             try {
-                const { data } = await supabase
-                    .from('profiles')
-                    .select('stars_balance')
-                    .eq('id', user.id)
-                    .single()
+                const { data } = await supabase.from('profiles').select('stars_balance').eq('id', user.id).single()
                 return data?.stars_balance || 0
-            } catch (e) {
-                return 0
-            }
+            } catch { return 0 }
         }
         
         async function getActiveStories() {
@@ -501,29 +489,15 @@
             const user = await getCurrentUser()
             if (!user) return []
             try {
-                const { data: chats } = await supabase
-                    .from('chat_members')
-                    .select('chat_id')
-                    .eq('user_id', user.id)
+                const { data: chats } = await supabase.from('chat_members').select('chat_id').eq('user_id', user.id)
                 if (!chats || chats.length === 0) return []
                 const chatIds = chats.map(c => c.chat_id)
-                const { data: members } = await supabase
-                    .from('chat_members')
-                    .select('user_id')
-                    .in('chat_id', chatIds)
-                    .neq('user_id', user.id)
+                const { data: members } = await supabase.from('chat_members').select('user_id').in('chat_id', chatIds).neq('user_id', user.id)
                 const userIds = [...new Set(members.map(m => m.user_id))]
                 if (userIds.length === 0) return []
-                const { data, error } = await supabase
-                    .from('stories')
-                    .select('*, user:user_id(id, username)')
-                    .in('user_id', userIds)
-                    .gt('expires_at', new Date().toISOString())
-                if (error) return []
-                return data
-            } catch (e) {
-                return []
-            }
+                const { data } = await supabase.from('stories').select('*, user:user_id(id, username)').in('user_id', userIds).gt('expires_at', new Date().toISOString())
+                return data || []
+            } catch { return [] }
         }
         
         async function uploadStory(file) {
@@ -543,7 +517,7 @@
                     media_type: file.type.startsWith('image') ? 'image' : 'video',
                     expires_at: expiresAt.toISOString()
                 })
-            } catch (e) {}
+            } catch {}
         }
         
         async function isAdmin() {
@@ -551,44 +525,25 @@
             const user = await getCurrentUser()
             if (!user) return false
             try {
-                const { data } = await supabase
-                    .from('profiles')
-                    .select('is_admin')
-                    .eq('id', user.id)
-                    .single()
+                const { data } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
                 return data?.is_admin || false
-            } catch (e) {
-                return false
-            }
+            } catch { return false }
         }
         
         async function getAllUsers() {
             if (!supabase) return []
             try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('id, email, username, stars_balance, is_admin')
-                    .order('created_at')
-                if (error) return []
-                return data
-            } catch (e) {
-                return []
-            }
+                const { data } = await supabase.from('profiles').select('id, email, username, stars_balance, is_admin').order('created_at')
+                return data || []
+            } catch { return [] }
         }
         
         async function modifyStars(userId, amount) {
             if (!supabase) return
             try {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('stars_balance')
-                    .eq('id', userId)
-                    .single()
-                await supabase
-                    .from('profiles')
-                    .update({ stars_balance: (profile?.stars_balance || 0) + amount })
-                    .eq('id', userId)
-            } catch (e) {}
+                const { data: profile } = await supabase.from('profiles').select('stars_balance').eq('id', userId).single()
+                await supabase.from('profiles').update({ stars_balance: (profile?.stars_balance || 0) + amount }).eq('id', userId)
+            } catch {}
         }
         
         async function createGiftAdmin(name, price, type) {
@@ -596,33 +551,23 @@
             const user = await getCurrentUser()
             if (!user) return
             try {
-                await supabase.from('gifts').insert({
-                    name, price_stars: price, gift_type: type,
-                    icon: '🎁', is_active: true, created_by: user.id
-                })
-            } catch (e) {}
+                await supabase.from('gifts').insert({ name, price_stars: price, gift_type: type, icon: '🎁', is_active: true, created_by: user.id })
+            } catch {}
         }
         
         async function deleteGiftAdmin(id) {
             if (!supabase) return
             try {
                 await supabase.from('gifts').delete().eq('id', id)
-            } catch (e) {}
+            } catch {}
         }
         
         async function searchUsers(query) {
             if (!supabase) return []
             try {
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('id, username')
-                    .ilike('username', `%${query}%`)
-                    .limit(20)
-                if (error) return []
-                return data
-            } catch (e) {
-                return []
-            }
+                const { data } = await supabase.from('profiles').select('id, username').ilike('username', `%${query}%`).limit(20)
+                return data || []
+            } catch { return [] }
         }
         
         async function createPrivateChat(userId) {
@@ -630,54 +575,73 @@
             const user = await getCurrentUser()
             if (!user) return null
             try {
-                const { data: chat, error } = await supabase
-                    .from('chats')
-                    .insert({ chat_type: 'private', created_by: user.id })
-                    .select()
-                    .single()
-                if (error) throw error
+                const { data: chat } = await supabase.from('chats').insert({ chat_type: 'private', created_by: user.id }).select().single()
+                if (!chat) return null
                 await supabase.from('chat_members').insert([
                     { chat_id: chat.id, user_id: user.id, role: 'member' },
                     { chat_id: chat.id, user_id: userId, role: 'member' }
                 ])
                 return chat
-            } catch (e) {
-                return null
-            }
+            } catch { return null }
         }
         
-        // ============== СТРАНИЦЫ ==============
+        async function createGroupChat(name, userIds, description = '') {
+            if (!supabase) return null
+            const user = await getCurrentUser()
+            if (!user) return null
+            try {
+                const { data: chat } = await supabase.from('chats').insert({ chat_type: 'group', name, description, created_by: user.id }).select().single()
+                if (!chat) return null
+                const members = [{ chat_id: chat.id, user_id: user.id, role: 'creator' }]
+                for (const uid of userIds) {
+                    members.push({ chat_id: chat.id, user_id: uid, role: 'member' })
+                }
+                await supabase.from('chat_members').insert(members)
+                return chat
+            } catch { return null }
+        }
+        
+        async function createChannelChat(name, description = '') {
+            if (!supabase) return null
+            const user = await getCurrentUser()
+            if (!user) return null
+            try {
+                const { data: chat } = await supabase.from('chats').insert({ chat_type: 'channel', name, description, created_by: user.id }).select().single()
+                if (!chat) return null
+                await supabase.from('chat_members').insert([{ chat_id: chat.id, user_id: user.id, role: 'creator' }])
+                return chat
+            } catch { return null }
+        }
+        
+        // Страницы
         async function showLogin() {
             showPage(`
-                <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-                    <div class="glass" style="max-width: 400px; width: 100%; padding: 40px 32px; text-align: center;">
-                        <div style="font-size: 48px; margin-bottom: 8px;">📱</div>
-                        <div style="font-size: 28px; font-weight: bold; margin-bottom: 8px;">RuGram</div>
-                        <div style="color: var(--text-secondary); margin-bottom: 32px;">Защищённый мессенджер</div>
+                <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;">
+                    <div class="glass" style="max-width:400px; width:100%; padding:40px 32px; text-align:center;">
+                        <div style="font-size:48px;">📱</div>
+                        <div style="font-size:28px; font-weight:bold;">RuGram</div>
+                        <div style="color:var(--text-secondary); margin-bottom:32px;">Защищённый мессенджер</div>
                         <form id="loginForm">
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
+                            <div style="margin-bottom:20px; text-align:left;">
+                                <label>Email</label>
                                 <input type="email" id="email" class="input" placeholder="user@rugram.com" required>
                             </div>
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Пароль</label>
+                            <div style="margin-bottom:20px; text-align:left;">
+                                <label>Пароль</label>
                                 <input type="password" id="password" class="input" placeholder="••••••••" required>
                             </div>
-                            <button type="submit" class="btn" style="width: 100%;">Войти</button>
-                            <div id="loginError" style="color: #e53e3e; font-size: 14px; margin-top: 12px; display: none;">Неверный email или пароль</div>
+                            <button type="submit" class="btn" style="width:100%;">Войти</button>
+                            <div id="loginError" style="color:#e53e3e; font-size:14px; margin-top:12px; display:none;">Неверный email или пароль</div>
                         </form>
-                        <div style="margin-top: 20px; color: var(--text-secondary);">
-                            Нет аккаунта? <a href="#" onclick="showRegister()" style="color: var(--accent); text-decoration: none;">Зарегистрироваться</a>
-                        </div>
+                        <div style="margin-top:20px;">Нет аккаунта? <a href="#" onclick="showRegister()" style="color:var(--accent);">Зарегистрироваться</a></div>
                     </div>
                 </div>
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
-            
             document.getElementById('loginForm').addEventListener('submit', async (e) => {
                 e.preventDefault()
                 const email = document.getElementById('email').value
@@ -687,7 +651,7 @@
                     if (error) throw error
                     await initApp()
                     showChats()
-                } catch (err) {
+                } catch {
                     document.getElementById('loginError').style.display = 'block'
                 }
             })
@@ -695,66 +659,46 @@
         
         async function showRegister() {
             showPage(`
-                <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-                    <div class="glass" style="max-width: 400px; width: 100%; padding: 40px 32px; text-align: center;">
-                        <div style="font-size: 48px; margin-bottom: 8px;">✨</div>
-                        <div style="font-size: 28px; font-weight: bold; margin-bottom: 8px;">Создать аккаунт</div>
-                        <div style="color: var(--text-secondary); margin-bottom: 32px;">Присоединяйся к RuGram</div>
+                <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;">
+                    <div class="glass" style="max-width:400px; width:100%; padding:40px 32px; text-align:center;">
+                        <div style="font-size:48px;">✨</div>
+                        <div style="font-size:28px; font-weight:bold;">Регистрация</div>
+                        <div style="color:var(--text-secondary); margin-bottom:32px;">Присоединяйся к RuGram</div>
                         <form id="registerForm">
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Имя пользователя</label>
-                                <input type="text" id="username" class="input" placeholder="ivan123" required>
-                            </div>
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Email</label>
-                                <input type="email" id="email" class="input" placeholder="ivan@example.com" required>
-                            </div>
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Пароль</label>
-                                <input type="password" id="password" class="input" placeholder="минимум 6 символов" required>
-                            </div>
-                            <div style="margin-bottom: 20px; text-align: left;">
-                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Подтверждение пароля</label>
-                                <input type="password" id="confirm" class="input" placeholder="повторите пароль" required>
-                            </div>
-                            <button type="submit" class="btn" style="width: 100%;">Зарегистрироваться</button>
-                            <div id="registerError" style="color: #e53e3e; font-size: 14px; margin-top: 12px; display: none;"></div>
+                            <div style="margin-bottom:20px;"><input type="text" id="username" class="input" placeholder="Имя пользователя" required></div>
+                            <div style="margin-bottom:20px;"><input type="email" id="email" class="input" placeholder="Email" required></div>
+                            <div style="margin-bottom:20px;"><input type="password" id="password" class="input" placeholder="Пароль (мин. 6 символов)" required></div>
+                            <div style="margin-bottom:20px;"><input type="password" id="confirm" class="input" placeholder="Подтвердите пароль" required></div>
+                            <button type="submit" class="btn" style="width:100%;">Зарегистрироваться</button>
+                            <div id="registerError" style="color:#e53e3e; margin-top:12px; display:none;"></div>
                         </form>
-                        <div style="margin-top: 20px; color: var(--text-secondary);">
-                            Уже есть аккаунт? <a href="#" onclick="showLogin()" style="color: var(--accent); text-decoration: none;">Войти</a>
-                        </div>
+                        <div style="margin-top:20px;">Уже есть аккаунт? <a href="#" onclick="showLogin()" style="color:var(--accent);">Войти</a></div>
                     </div>
                 </div>
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
-            
             document.getElementById('registerForm').addEventListener('submit', async (e) => {
                 e.preventDefault()
                 const username = document.getElementById('username').value
                 const email = document.getElementById('email').value
                 const password = document.getElementById('password').value
                 const confirm = document.getElementById('confirm').value
-                
                 if (password !== confirm) {
                     document.getElementById('registerError').textContent = 'Пароли не совпадают'
                     document.getElementById('registerError').style.display = 'block'
                     return
                 }
                 if (password.length < 6) {
-                    document.getElementById('registerError').textContent = 'Пароль должен быть не менее 6 символов'
+                    document.getElementById('registerError').textContent = 'Пароль должен быть минимум 6 символов'
                     document.getElementById('registerError').style.display = 'block'
                     return
                 }
-                
                 try {
-                    const { error } = await supabase.auth.signUp({
-                        email, password,
-                        options: { data: { username } }
-                    })
+                    const { error } = await supabase.auth.signUp({ email, password, options: { data: { username } } })
                     if (error) throw error
                     alert('Регистрация успешна! Теперь войдите.')
                     showLogin()
@@ -770,58 +714,80 @@
             if (!currentUser) { showLogin(); return }
             
             const chats = await getUserChats()
-            const privateChats = chats.filter(c => c.chat_type === 'private')
-            const groups = chats.filter(c => c.chat_type === 'group')
-            const channels = chats.filter(c => c.chat_type === 'channel')
+            const isAdminUser = await isAdmin()
             
             showPage(`
-                <div style="max-width: 800px; margin: 0 auto; min-height: 100vh;">
-                    <div class="glass" style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100;">
+                <div style="max-width:800px; margin:0 auto; min-height:100vh;">
+                    <div class="glass" style="padding:16px 20px; display:flex; justify-content:space-between; align-items:center;">
                         <h1>RuGram</h1>
-                        <div style="display: flex; gap: 16px;">
-                            <span style="font-size: 24px; cursor: pointer;" onclick="showProfile()">👤</span>
-                            <span style="font-size: 24px; cursor: pointer;" onclick="showGifts()">🎁</span>
-                            <span style="font-size: 24px; cursor: pointer;" onclick="showStories()">📸</span>
+                        <div style="display:flex; gap:16px;">
+                            <span style="font-size:24px; cursor:pointer;" onclick="showProfile()">👤</span>
+                            <span style="font-size:24px; cursor:pointer;" onclick="showGifts()">🎁</span>
+                            <span style="font-size:24px; cursor:pointer;" onclick="showStories()">📸</span>
+                            ${isAdminUser ? '<span style="font-size:24px; cursor:pointer;" onclick="showAdmin()">⚙️</span>' : ''}
                         </div>
                     </div>
-                    
-                    <div style="display: flex; padding: 0 20px; gap: 24px; border-bottom: 1px solid var(--border);">
-                        <div id="tabChats" style="padding: 12px 0; cursor: pointer; font-weight: 500; color: var(--accent); border-bottom: 2px solid var(--accent);">Чаты</div>
-                        <div id="tabGroups" style="padding: 12px 0; cursor: pointer; font-weight: 500; color: var(--text-secondary);">Группы</div>
-                        <div id="tabChannels" style="padding: 12px 0; cursor: pointer; font-weight: 500; color: var(--text-secondary);">Каналы</div>
+                    <div style="display:flex; padding:0 20px; gap:24px; border-bottom:1px solid var(--border);">
+                        <div id="tabChats" style="padding:12px 0; cursor:pointer; font-weight:500; color:var(--accent); border-bottom:2px solid var(--accent);">Чаты</div>
+                        <div id="tabGroups" style="padding:12px 0; cursor:pointer; font-weight:500; color:var(--text-secondary);">Группы</div>
+                        <div id="tabChannels" style="padding:12px 0; cursor:pointer; font-weight:500; color:var(--text-secondary);">Каналы</div>
                     </div>
-                    
-                    <div id="chatList" style="padding: 8px 0;"></div>
+                    <div id="chatList" style="padding:8px 0;"></div>
                 </div>
-                
-                <button id="newChatBtn" style="position: fixed; bottom: 80px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: var(--accent); color: white; border: none; font-size: 24px; cursor: pointer; box-shadow: var(--shadow);">+</button>
-                
+                <button class="fab" id="fabBtn">+</button>
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
-                
-                <div id="newChatModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center;">
-                    <div class="glass" style="max-width: 400px; width: 90%; padding: 24px; border-radius: 28px;">
-                        <h3 style="margin-bottom: 16px;">Новый чат</h3>
-                        <input type="text" id="searchUserInput" class="input" placeholder="Поиск пользователей..." style="margin-bottom: 16px;">
-                        <div id="searchResults" style="max-height: 300px; overflow-y: auto;"></div>
-                        <button onclick="closeModal()" style="margin-top: 16px; width: 100%; padding: 12px; border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 16px; cursor: pointer;">Отмена</button>
+                <div id="createModal" class="modal">
+                    <div class="glass modal-content">
+                        <h3 style="margin-bottom:16px;">Создать</h3>
+                        <button class="btn" style="width:100%; margin-bottom:12px;" onclick="showCreateChat('private')">💬 Личный чат</button>
+                        <button class="btn" style="width:100%; margin-bottom:12px;" onclick="showCreateChat('group')">👥 Группу</button>
+                        <button class="btn" style="width:100%;" onclick="showCreateChat('channel')">📢 Канал</button>
+                        <button class="btn-secondary" style="width:100%; margin-top:16px;" onclick="closeModal()">Отмена</button>
+                    </div>
+                </div>
+                <div id="createPrivateModal" class="modal">
+                    <div class="glass modal-content">
+                        <h3 style="margin-bottom:16px;">Новый личный чат</h3>
+                        <input type="text" id="searchUser" class="input" placeholder="Поиск пользователей..." style="margin-bottom:16px;">
+                        <div id="searchResults" style="max-height:300px; overflow-y:auto;"></div>
+                        <button class="btn-secondary" style="width:100%; margin-top:16px;" onclick="closeModal()">Отмена</button>
+                    </div>
+                </div>
+                <div id="createGroupModal" class="modal">
+                    <div class="glass modal-content">
+                        <h3 style="margin-bottom:16px;">Создать группу</h3>
+                        <input type="text" id="groupName" class="input" placeholder="Название группы" style="margin-bottom:12px;">
+                        <input type="text" id="groupDesc" class="input" placeholder="Описание (необязательно)" style="margin-bottom:12px;">
+                        <input type="text" id="groupMembers" class="input" placeholder="Username участников (через запятую)" style="margin-bottom:16px;">
+                        <button class="btn" style="width:100%;" onclick="createGroup()">Создать</button>
+                        <button class="btn-secondary" style="width:100%; margin-top:12px;" onclick="closeModal()">Отмена</button>
+                    </div>
+                </div>
+                <div id="createChannelModal" class="modal">
+                    <div class="glass modal-content">
+                        <h3 style="margin-bottom:16px;">Создать канал</h3>
+                        <input type="text" id="channelName" class="input" placeholder="Название канала" style="margin-bottom:12px;">
+                        <input type="text" id="channelDesc" class="input" placeholder="Описание (необязательно)" style="margin-bottom:16px;">
+                        <button class="btn" style="width:100%;" onclick="createChannel()">Создать</button>
+                        <button class="btn-secondary" style="width:100%; margin-top:12px;" onclick="closeModal()">Отмена</button>
                     </div>
                 </div>
             `)
             
             function renderChatList(type) {
-                let list = []
-                if (type === 'chats') list = privateChats
-                else if (type === 'groups') list = groups
-                else list = channels
-                
+                let list = chats.filter(c => {
+                    if (type === 'chats') return c.chat_type === 'private'
+                    if (type === 'groups') return c.chat_type === 'group'
+                    return c.chat_type === 'channel'
+                })
                 const container = document.getElementById('chatList')
                 if (!container) return
                 if (list.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; padding: 60px 20px; color: var(--text-secondary);">Нет чатов</div>'
+                    container.innerHTML = '<div style="text-align:center; padding:60px 20px; color:var(--text-secondary);">Нет чатов</div>'
                     return
                 }
                 container.innerHTML = list.map(chat => `
@@ -853,29 +819,76 @@
                 renderChatList('channels')
             }
             
-            document.getElementById('newChatBtn').onclick = async () => {
-                const modal = document.getElementById('newChatModal')
-                if (modal) modal.style.display = 'flex'
-                const input = document.getElementById('searchUserInput')
-                if (input) input.value = ''
-                const results = document.getElementById('searchResults')
-                if (results) results.innerHTML = ''
-                if (input) {
-                    input.oninput = async (e) => {
+            document.getElementById('fabBtn').onclick = () => {
+                document.getElementById('createModal').style.display = 'flex'
+            }
+        }
+        
+        window.showCreateChat = (type) => {
+            document.getElementById('createModal').style.display = 'none'
+            if (type === 'private') {
+                document.getElementById('createPrivateModal').style.display = 'flex'
+                const searchInput = document.getElementById('searchUser')
+                if (searchInput) {
+                    searchInput.value = ''
+                    searchInput.oninput = async (e) => {
                         const query = e.target.value
-                        if (query.length < 2) return
-                        const users = await searchUsers(query)
-                        const resultsDiv = document.getElementById('searchResults')
-                        if (resultsDiv) {
-                            resultsDiv.innerHTML = users.map(user => `
-                                <div class="chat-item" onclick="startChat('${user.id}', '${user.username}')">
-                                    <div class="avatar">${user.username[0]}</div>
-                                    <div>${user.username}</div>
-                                </div>
-                            `).join('')
+                        if (query.length < 2) {
+                            document.getElementById('searchResults').innerHTML = ''
+                            return
                         }
+                        const users = await searchUsers(query)
+                        document.getElementById('searchResults').innerHTML = users.map(user => `
+                            <div class="chat-item" onclick="startChat('${user.id}', '${user.username}')">
+                                <div class="avatar">${user.username[0]}</div>
+                                <div>${user.username}</div>
+                            </div>
+                        `).join('')
                     }
                 }
+            } else if (type === 'group') {
+                document.getElementById('createGroupModal').style.display = 'flex'
+            } else if (type === 'channel') {
+                document.getElementById('createChannelModal').style.display = 'flex'
+            }
+        }
+        
+        window.createGroup = async () => {
+            const name = document.getElementById('groupName')?.value
+            const desc = document.getElementById('groupDesc')?.value
+            const membersStr = document.getElementById('groupMembers')?.value
+            if (!name) {
+                alert('Введите название группы')
+                return
+            }
+            const usernames = membersStr.split(',').map(s => s.trim()).filter(s => s)
+            const userIds = []
+            for (const username of usernames) {
+                const { data } = await supabase.from('profiles').select('id').eq('username', username).single()
+                if (data) userIds.push(data.id)
+            }
+            const chat = await createGroupChat(name, userIds, desc)
+            if (chat) {
+                closeModal()
+                showChats()
+            } else {
+                alert('Ошибка создания группы')
+            }
+        }
+        
+        window.createChannel = async () => {
+            const name = document.getElementById('channelName')?.value
+            const desc = document.getElementById('channelDesc')?.value
+            if (!name) {
+                alert('Введите название канала')
+                return
+            }
+            const chat = await createChannelChat(name, desc)
+            if (chat) {
+                closeModal()
+                showChats()
+            } else {
+                alert('Ошибка создания канала')
             }
         }
         
@@ -894,38 +907,33 @@
         }
         
         window.closeModal = () => {
-            const modal = document.getElementById('newChatModal')
-            if (modal) modal.style.display = 'none'
+            document.querySelectorAll('.modal').forEach(m => m.style.display = 'none')
         }
         
         async function showChatWindow() {
             if (!currentChat) return
-            
             const messages = await getMessages(currentChat.id)
             const user = await getCurrentUser()
             
             showPage(`
-                <div style="height: 100vh; display: flex; flex-direction: column;">
-                    <div class="glass" style="padding: 16px 20px; display: flex; align-items: center; gap: 16px;">
-                        <button onclick="showChats()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-primary);">←</button>
-                        <div style="font-weight: bold; font-size: 18px; flex:1;">${currentChat.name}</div>
-                        <div style="font-size: 12px; background: rgba(66,158,243,0.2); padding: 4px 10px; border-radius: 20px;">🔒 AES-256</div>
+                <div style="height:100vh; display:flex; flex-direction:column;">
+                    <div class="glass" style="padding:16px 20px; display:flex; align-items:center; gap:16px;">
+                        <button onclick="showChats()" style="background:none; border:none; font-size:24px; cursor:pointer;">←</button>
+                        <div style="font-weight:bold; font-size:18px; flex:1;">${currentChat.name}</div>
+                        <div style="font-size:12px; background:rgba(66,158,243,0.2); padding:4px 10px; border-radius:20px;">🔒 AES-256</div>
                     </div>
-                    
-                    <div id="messagesContainer" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;"></div>
-                    
-                    <div class="glass" style="padding: 12px 16px; display: flex; gap: 12px;">
-                        <button onclick="document.getElementById('fileInput').click()" style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 50%; width: 44px; font-size: 20px; cursor: pointer;">📎</button>
+                    <div id="messagesContainer" style="flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px;"></div>
+                    <div class="glass" style="padding:12px 16px; display:flex; gap:12px;">
+                        <button onclick="document.getElementById('fileInput').click()" style="background:var(--bg-secondary); border:1px solid var(--border); border-radius:50%; width:44px; font-size:20px; cursor:pointer;">📎</button>
                         <input type="text" id="messageInput" class="input" placeholder="Сообщение..." style="flex:1;">
-                        <button onclick="sendMessage()" style="background: var(--accent); border: none; border-radius: 50%; width: 44px; color: white; font-size: 20px; cursor: pointer;">➤</button>
-                        <input type="file" id="fileInput" style="display: none;" accept="image/*,video/*,.pdf,.doc,.txt">
+                        <button onclick="sendMsg()" style="background:var(--accent); border:none; border-radius:50%; width:44px; color:white; font-size:20px; cursor:pointer;">➤</button>
+                        <input type="file" id="fileInput" style="display:none;" accept="image/*,video/*,.pdf,.doc,.txt">
                     </div>
                 </div>
-                
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
             
@@ -956,6 +964,7 @@
             }
             
             function escapeHtml(text) {
+                if (!text) return ''
                 const div = document.createElement('div')
                 div.textContent = text
                 return div.innerHTML
@@ -969,7 +978,7 @@
                 renderMessages()
             })
             
-            window.sendMessage = async () => {
+            window.sendMsg = async () => {
                 const input = document.getElementById('messageInput')
                 const text = input?.value.trim()
                 if (!text) return
@@ -999,7 +1008,7 @@
             const msgInput = document.getElementById('messageInput')
             if (msgInput) {
                 msgInput.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') window.sendMessage()
+                    if (e.key === 'Enter') window.sendMsg()
                 })
             }
         }
@@ -1012,30 +1021,27 @@
             const isAdminUser = await isAdmin()
             
             showPage(`
-                <div style="max-width: 500px; margin: 0 auto; padding: 20px;">
-                    <div class="glass" style="text-align: center; padding: 32px; margin-bottom: 20px;">
-                        <div style="width: 100px; height: 100px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-dark)); display: flex; align-items: center; justify-content: center; font-size: 48px; margin: 0 auto 16px;">👤</div>
+                <div style="max-width:500px; margin:0 auto; padding:20px;">
+                    <div class="glass" style="text-align:center; padding:32px; margin-bottom:20px;">
+                        <div style="width:100px; height:100px; border-radius:50%; background:linear-gradient(135deg, var(--accent), var(--accent-dark)); display:flex; align-items:center; justify-content:center; font-size:48px; margin:0 auto 16px;">👤</div>
                         <h2>${escapeHtml(profile?.username || user.email.split('@')[0])}</h2>
-                        <div style="color: var(--text-secondary); margin: 8px 0;">${escapeHtml(user.email)}</div>
-                        ${isAdminUser ? '<div style="background: #dc2626; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; display: inline-block;">👑 Администратор</div>' : ''}
+                        <div style="color:var(--text-secondary); margin:8px 0;">${user.email}</div>
+                        ${isAdminUser ? '<div style="background:#dc2626; color:white; padding:4px 12px; border-radius:20px; font-size:12px; display:inline-block;">👑 Администратор</div>' : ''}
                     </div>
-                    
-                    <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 20px; margin-bottom: 20px;">
-                        <span style="font-size: 20px;">⭐ Баланс Star</span>
-                        <span style="font-size: 32px; font-weight: bold; color: #ff9800;">${balance}</span>
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding:20px; margin-bottom:20px;">
+                        <span>⭐ Баланс Star</span>
+                        <span style="font-size:32px; font-weight:bold; color:#ff9800;">${balance}</span>
                     </div>
-                    
-                    <div style="display: flex; gap: 12px;">
+                    <div style="display:flex; gap:12px;">
                         <button class="btn" style="flex:1" onclick="showChats()">← Чаты</button>
-                        <button class="btn-secondary" style="flex:1; padding: 12px; border: 1px solid var(--border); background: var(--bg-secondary); border-radius: 16px; cursor: pointer;" onclick="logout()">🚪 Выйти</button>
+                        <button class="btn-secondary" style="flex:1" onclick="logout()">🚪 Выйти</button>
                     </div>
                     ${isAdminUser ? '<button class="btn" style="width:100%; margin-top:12px;" onclick="showAdmin()">⚙️ Админ панель</button>' : ''}
                 </div>
-                
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
         }
@@ -1045,31 +1051,29 @@
             const balance = await getStarBalance()
             
             showPage(`
-                <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
-                    <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; margin-bottom: 20px;">
-                        <button onclick="showChats()" style="background: none; border: none; font-size: 24px; cursor: pointer;">←</button>
+                <div style="max-width:800px; margin:0 auto; padding:20px;">
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; margin-bottom:20px;">
+                        <button onclick="showChats()" style="background:none; border:none; font-size:24px; cursor:pointer;">←</button>
                         <h2>🎁 Подарки</h2>
-                        <div style="background: #ffd700; color: #7c5c00; padding: 8px 16px; border-radius: 30px; font-weight: bold;">⭐ ${balance}</div>
+                        <div style="background:#ffd700; color:#7c5c00; padding:8px 16px; border-radius:30px;">⭐ ${balance}</div>
                     </div>
-                    
-                    <div id="giftGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px;"></div>
+                    <div id="giftGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:16px;"></div>
                 </div>
-                
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
             
             const grid = document.getElementById('giftGrid')
             if (grid) {
                 grid.innerHTML = gifts.map(gift => `
-                    <div class="glass" style="text-align: center; padding: 20px; cursor: pointer;" onclick="alert('Подарок ${gift.name} отправлен! Списано ${gift.price_stars} Star')">
-                        <div style="font-size: 48px; margin-bottom: 12px;">${gift.icon || '🎁'}</div>
-                        <div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(gift.name)}</div>
-                        <div style="color: #ff9800; font-weight: bold;">⭐ ${gift.price_stars}</div>
-                        ${gift.gift_type === 'nft' ? '<div style="background: linear-gradient(135deg, #7c3aed, #a855f7); color: white; font-size: 10px; padding: 2px 8px; border-radius: 12px; display: inline-block; margin-top: 8px;">NFT</div>' : ''}
+                    <div class="glass" style="text-align:center; padding:20px; cursor:pointer;" onclick="alert('Подарок ${gift.name} отправлен!')">
+                        <div style="font-size:48px;">${gift.icon || '🎁'}</div>
+                        <div style="font-weight:600;">${gift.name}</div>
+                        <div style="color:#ff9800;">⭐ ${gift.price_stars}</div>
+                        ${gift.gift_type === 'nft' ? '<div style="background:linear-gradient(135deg,#7c3aed,#a855f7); color:white; font-size:10px; padding:2px 8px; border-radius:12px; display:inline-block; margin-top:8px;">NFT</div>' : ''}
                     </div>
                 `).join('')
             }
@@ -1079,32 +1083,30 @@
             const stories = await getActiveStories()
             
             showPage(`
-                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; margin-bottom: 20px;">
-                        <button onclick="showChats()" style="background: none; border: none; font-size: 24px; cursor: pointer;">←</button>
+                <div style="max-width:600px; margin:0 auto; padding:20px;">
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; margin-bottom:20px;">
+                        <button onclick="showChats()" style="background:none; border:none; font-size:24px; cursor:pointer;">←</button>
                         <h2>📸 Статусы</h2>
-                        <button onclick="addStory()" style="background: var(--accent); border: none; padding: 10px 20px; border-radius: 30px; color: white; cursor: pointer;">+ Моя история</button>
+                        <button onclick="addStory()" style="background:var(--accent); border:none; padding:10px 20px; border-radius:30px; color:white; cursor:pointer;">+</button>
                     </div>
-                    
-                    <div id="storiesGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 16px;"></div>
+                    <div id="storiesGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:16px;"></div>
                 </div>
-                
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
             
             const grid = document.getElementById('storiesGrid')
             if (grid) {
                 if (stories.length === 0) {
-                    grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px;">Нет активных историй</div>'
+                    grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px;">Нет историй</div>'
                 } else {
                     grid.innerHTML = stories.map(story => `
-                        <div class="glass" style="text-align: center; padding: 16px; cursor: pointer;" onclick="window.open('${story.media_url}', '_blank')">
-                            <div style="width: 70px; height: 70px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-dark)); margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 32px;">👤</div>
-                            <div style="font-weight: 500; font-size: 14px;">${escapeHtml(story.user?.username || 'Пользователь')}</div>
+                        <div class="glass" style="text-align:center; padding:16px; cursor:pointer;" onclick="window.open('${story.media_url}', '_blank')">
+                            <div style="width:70px; height:70px; border-radius:50%; background:linear-gradient(135deg, var(--accent), var(--accent-dark)); margin:0 auto 12px; display:flex; align-items:center; justify-content:center; font-size:32px;">👤</div>
+                            <div style="font-size:14px;">${story.user?.username || 'Пользователь'}</div>
                         </div>
                     `).join('')
                 }
@@ -1126,75 +1128,53 @@
         }
         
         async function showAdmin() {
-            if (!await isAdmin()) {
-                showChats()
-                return
-            }
-            
+            if (!await isAdmin()) { showChats(); return }
             const users = await getAllUsers()
             const gifts = await getGifts()
             
             showPage(`
-                <div style="max-width: 900px; margin: 0 auto; padding: 20px;">
-                    <div class="glass" style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; margin-bottom: 20px;">
-                        <button onclick="showChats()" style="background: none; border: none; font-size: 24px; cursor: pointer;">←</button>
+                <div style="max-width:900px; margin:0 auto; padding:20px;">
+                    <div class="glass" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; margin-bottom:20px;">
+                        <button onclick="showChats()" style="background:none; border:none; font-size:24px; cursor:pointer;">←</button>
                         <h2>⚙️ Админ панель</h2>
-                        <div style="width: 40px;"></div>
+                        <div style="width:40px;"></div>
                     </div>
-                    
-                    <div class="glass" style="padding: 24px; margin-bottom: 24px;">
-                        <h3 style="margin-bottom: 16px;">⭐ Управление балансами</h3>
-                        <input type="text" id="adminUserEmail" class="input" placeholder="Email пользователя" style="margin-bottom: 12px;">
-                        <input type="number" id="adminStarAmount" class="input" placeholder="Количество Star" style="margin-bottom: 12px;">
-                        <div style="display: flex; gap: 12px;">
-                            <button class="btn" style="flex:1; background: #10b981;" onclick="adminAddStars()">➕ Добавить</button>
-                            <button class="btn" style="flex:1; background: #dc2626;" onclick="adminRemoveStars()">➖ Снять</button>
+                    <div class="glass" style="padding:24px; margin-bottom:24px;">
+                        <h3>⭐ Управление балансами</h3>
+                        <input type="text" id="adminUserEmail" class="input" placeholder="Email пользователя" style="margin:12px 0;">
+                        <input type="number" id="adminStarAmount" class="input" placeholder="Количество Star" style="margin-bottom:12px;">
+                        <div style="display:flex; gap:12px;">
+                            <button class="btn" style="flex:1; background:#10b981;" onclick="adminAddStars()">➕ Добавить</button>
+                            <button class="btn" style="flex:1; background:#dc2626;" onclick="adminRemoveStars()">➖ Снять</button>
                         </div>
                     </div>
-                    
-                    <div class="glass" style="padding: 24px; margin-bottom: 24px;">
-                        <h3 style="margin-bottom: 16px;">🎁 Управление подарками</h3>
-                        <input type="text" id="giftName" class="input" placeholder="Название" style="margin-bottom: 12px;">
-                        <input type="number" id="giftPrice" class="input" placeholder="Цена в Star" style="margin-bottom: 12px;">
-                        <select id="giftType" class="input" style="margin-bottom: 12px;">
-                            <option value="common">Обычный</option>
-                            <option value="nft">NFT</option>
-                        </select>
-                        <button class="btn" style="width:100%" onclick="adminAddGift()">➕ Добавить подарок</button>
-                        <div id="adminGiftList" style="margin-top: 16px;"></div>
+                    <div class="glass" style="padding:24px; margin-bottom:24px;">
+                        <h3>🎁 Управление подарками</h3>
+                        <input type="text" id="giftName" class="input" placeholder="Название" style="margin:12px 0;">
+                        <input type="number" id="giftPrice" class="input" placeholder="Цена" style="margin-bottom:12px;">
+                        <select id="giftType" class="input" style="margin-bottom:12px;"><option value="common">Обычный</option><option value="nft">NFT</option></select>
+                        <button class="btn" style="width:100%" onclick="adminAddGift()">➕ Добавить</button>
+                        <div id="adminGiftList" style="margin-top:16px;"></div>
                     </div>
-                    
-                    <div class="glass" style="padding: 24px;">
-                        <h3 style="margin-bottom: 16px;">👥 Пользователи</h3>
+                    <div class="glass" style="padding:24px;">
+                        <h3>👥 Пользователи</h3>
                         <div id="adminUserList"></div>
                     </div>
                 </div>
-                
                 <div class="theme-switch">
-                    <button class="theme-btn light" onclick="setTheme('light')"></button>
-                    <button class="theme-btn dark" onclick="setTheme('dark')"></button>
-                    <button class="theme-btn personal" onclick="setTheme('personal')"></button>
+                    <button class="theme-btn light" onclick="setTheme('light')">☀️</button>
+                    <button class="theme-btn dark" onclick="setTheme('dark')">🌙</button>
+                    <button class="theme-btn personal" onclick="setTheme('personal')">🎨</button>
                 </div>
             `)
             
             const userList = document.getElementById('adminUserList')
             if (userList) {
-                userList.innerHTML = users.map(user => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border);">
-                        <div><strong>${escapeHtml(user.username || user.email)}</strong><div style="font-size:12px;">⭐ ${user.stars_balance || 0} Star</div></div>
-                        <div>${user.is_admin ? '<span style="color:gold;">👑 Админ</span>' : ''}</div>
-                    </div>
-                `).join('')
+                userList.innerHTML = users.map(u => `<div style="display:flex; justify-content:space-between; padding:12px; border-bottom:1px solid var(--border);"><div><strong>${u.username || u.email}</strong><div style="font-size:12px;">⭐ ${u.stars_balance || 0}</div></div><div>${u.is_admin ? '👑 Админ' : ''}</div></div>`).join('')
             }
-            
             const giftList = document.getElementById('adminGiftList')
             if (giftList) {
-                giftList.innerHTML = gifts.map(gift => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid var(--border);">
-                        <span>${gift.icon || '🎁'} ${escapeHtml(gift.name)} - ⭐${gift.price_stars}</span>
-                        <button class="btn-secondary" style="padding: 6px 12px;" onclick="adminDeleteGift(${gift.id})">🗑️</button>
-                    </div>
-                `).join('')
+                giftList.innerHTML = gifts.map(g => `<div style="display:flex; justify-content:space-between; padding:12px; border-bottom:1px solid var(--border);"><span>${g.icon || '🎁'} ${g.name} - ⭐${g.price_stars}</span><button class="btn-secondary" style="padding:6px 12px;" onclick="adminDeleteGift(${g.id})">🗑️</button></div>`).join('')
             }
         }
         
@@ -1203,52 +1183,38 @@
             const amount = parseInt(document.getElementById('adminStarAmount')?.value || '0')
             const users = await getAllUsers()
             const user = users.find(u => u.email === email)
-            if (user) {
-                await modifyStars(user.id, amount)
-                alert('Готово')
-                showAdmin()
-            } else {
-                alert('Пользователь не найден')
-            }
+            if (user) { await modifyStars(user.id, amount); alert('Готово'); showAdmin() }
+            else alert('Пользователь не найден')
         }
-        
         window.adminRemoveStars = async () => {
             const email = document.getElementById('adminUserEmail')?.value
             const amount = parseInt(document.getElementById('adminStarAmount')?.value || '0')
             const users = await getAllUsers()
             const user = users.find(u => u.email === email)
-            if (user) {
-                await modifyStars(user.id, -amount)
-                alert('Готово')
-                showAdmin()
-            } else {
-                alert('Пользователь не найден')
-            }
+            if (user) { await modifyStars(user.id, -amount); alert('Готово'); showAdmin() }
+            else alert('Пользователь не найден')
         }
-        
         window.adminAddGift = async () => {
             const name = document.getElementById('giftName')?.value
             const price = parseInt(document.getElementById('giftPrice')?.value || '0')
             const type = document.getElementById('giftType')?.value
-            if (name && price) {
-                await createGiftAdmin(name, price, type)
-                alert('Подарок добавлен')
-                showAdmin()
-            }
+            if (name && price) { await createGiftAdmin(name, price, type); alert('Добавлено'); showAdmin() }
         }
-        
         window.adminDeleteGift = async (id) => {
-            if (confirm('Удалить подарок?')) {
-                await deleteGiftAdmin(id)
-                showAdmin()
-            }
+            if (confirm('Удалить?')) { await deleteGiftAdmin(id); showAdmin() }
         }
         
         async function logout() {
             if (supabase) await supabase.auth.signOut()
-            currentUser = null
             if (messageSubscription) messageSubscription.unsubscribe()
             showLogin()
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return ''
+            const div = document.createElement('div')
+            div.textContent = text
+            return div.innerHTML
         }
         
         async function initApp() {
@@ -1259,16 +1225,8 @@
             } else {
                 showLogin()
             }
-            
             const savedTheme = localStorage.getItem('theme') || 'light'
             setTheme(savedTheme)
-        }
-        
-        function escapeHtml(text) {
-            if (!text) return ''
-            const div = document.createElement('div')
-            div.textContent = text
-            return div.innerHTML
         }
         
         window.setTheme = setTheme
@@ -1283,10 +1241,11 @@
         window.openChat = openChat
         window.startChat = startChat
         window.closeModal = closeModal
+        window.showCreateChat = showCreateChat
+        window.createGroup = createGroup
+        window.createChannel = createChannel
         
-        loadSupabase().then(() => initApp()).catch(err => {
-            document.getElementById('app').innerHTML = `<div class="error-box">Ошибка подключения к Supabase: ${err.message}<br><br>Проверьте интернет и настройки CORS</div>`
-        })
+        loadSupabase().then(() => initApp())
     </script>
 </body>
 </html>
